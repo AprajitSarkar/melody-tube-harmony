@@ -9,7 +9,7 @@ export interface VideoResult {
   thumbnail: string;
 }
 
-// Mock popular music data for demo purposes since direct YouTube scraping is blocked by CORS
+// Mock popular music data as fallback when API fails
 const popularMusic = [
   {
     id: "JGwWNGJdvx8",
@@ -38,27 +38,42 @@ const popularMusic = [
   }
 ];
 
-// Function to search for YouTube videos with mock data
+// This API key is for demo purposes only - in a production app, you would use environment variables
+// This is a publishable key that can be included in frontend code
+const YOUTUBE_API_KEY = 'AIzaSyC9JvUJ7aXUSC0iKH3hWZpN4LFoIdGGEqY';
+
+// Function to search for YouTube videos using the YouTube Data API
 export const searchYouTubeVideos = async (searchQuery: string): Promise<VideoResult[]> => {
   try {
     console.log(`Searching for: ${searchQuery}`);
     
-    // In a real app, you would make an API call to a backend service that handles YouTube search
-    // For this demo, we'll filter mock data based on the search query
     if (!searchQuery.trim()) {
       return popularMusic;
     }
     
-    const searchLower = searchQuery.toLowerCase();
-    const filteredResults = popularMusic.filter(video => 
-      video.title.toLowerCase().includes(searchLower)
-    );
+    // Use the YouTube Data API v3 search endpoint
+    const apiUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=5&q=${encodeURIComponent(searchQuery)}&type=video&key=${YOUTUBE_API_KEY}`;
     
-    // If no results, return all popular music
-    return filteredResults.length > 0 ? filteredResults : popularMusic;
+    const response = await fetch(apiUrl);
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error("YouTube API error:", errorData);
+      throw new Error(`YouTube API error: ${errorData.error?.message || 'Unknown error'}`);
+    }
+    
+    const data = await response.json();
+    
+    // Map the API response to our VideoResult interface
+    return data.items.map((item: any) => ({
+      id: item.id.videoId,
+      title: item.snippet.title,
+      thumbnail: item.snippet.thumbnails.medium.url
+    }));
   } catch (error) {
     console.error("Error searching YouTube videos:", error);
-    return popularMusic; // Fallback to popular music if search fails
+    // Fallback to mock data if the API call fails
+    return popularMusic;
   }
 };
 
@@ -71,23 +86,46 @@ export const extractVideoId = (url: string): string | null => {
   return (match && match[2].length === 11) ? match[2] : null;
 };
 
-// Get video details (mocked for demo)
+// Get video details using the YouTube Data API
 export const getVideoDetails = async (videoId: string): Promise<VideoResult | null> => {
   try {
-    // First check if it's in our popular music list
+    // First check if it's in our popular music list for quick retrieval
     const existingVideo = popularMusic.find(video => video.id === videoId);
     if (existingVideo) {
       return existingVideo;
     }
     
-    // If not in our list, return generic details
+    // Use the YouTube Data API to get video details
+    const apiUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${YOUTUBE_API_KEY}`;
+    
+    const response = await fetch(apiUrl);
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error("YouTube API error:", errorData);
+      throw new Error(`YouTube API error: ${errorData.error?.message || 'Unknown error'}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.items && data.items.length > 0) {
+      const videoItem = data.items[0];
+      return {
+        id: videoId,
+        title: videoItem.snippet.title,
+        thumbnail: videoItem.snippet.thumbnails.medium.url
+      };
+    }
+    
+    throw new Error("Video not found");
+  } catch (error) {
+    console.error("Error getting video details:", error);
+    
+    // As a last resort, return generic details based on the video ID
     return {
       id: videoId,
       title: `YouTube Video (${videoId})`,
       thumbnail: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`
     };
-  } catch (error) {
-    console.error("Error getting video details:", error);
-    return null;
   }
 };
